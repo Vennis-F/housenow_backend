@@ -20,7 +20,7 @@ export const myFriendRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.db.connection().execute(async (conn) =>
+      return ctx.db.connection().execute(async (conn) => {
         /**
          * Question 4: Implement mutual friend count
          *
@@ -39,7 +39,21 @@ export const myFriendRouter = router({
          * Documentation references:
          *  - https://kysely-org.github.io/kysely/classes/SelectQueryBuilder.html#innerJoin
          */
-        conn
+
+        // Subquery to count mutual friends
+        const mutualFriendsSubquery = conn
+          .selectFrom('friendships as f1')
+          .innerJoin('friendships as f2', 'f1.friendUserId', 'f2.friendUserId')
+          .where('f1.userId', '=', ctx.session.userId)
+          .where('f2.userId', '=', input.friendUserId)
+          .where('f1.status', '=', FriendshipStatusSchema.Values['accepted'])
+          .where('f2.status', '=', FriendshipStatusSchema.Values['accepted'])
+          .select((eb) => [
+            eb.fn.count('f1.friendUserId').as('mutualFriendCount'),
+          ])
+          .as('mutualFriendsCount')
+
+        return conn
           .selectFrom('users as friends')
           .innerJoin('friendships', 'friendships.friendUserId', 'friends.id')
           .innerJoin(
@@ -47,6 +61,7 @@ export const myFriendRouter = router({
             'userTotalFriendCount.userId',
             'friends.id'
           )
+          .leftJoin(mutualFriendsSubquery, 'friends.id', 'friends.id')
           .where('friendships.userId', '=', ctx.session.userId)
           .where('friendships.friendUserId', '=', input.friendUserId)
           .where(
@@ -59,6 +74,7 @@ export const myFriendRouter = router({
             'friends.fullName',
             'friends.phoneNumber',
             'totalFriendCount',
+            'mutualFriendCount',
           ])
           .executeTakeFirstOrThrow(() => new TRPCError({ code: 'NOT_FOUND' }))
           .then(
@@ -70,7 +86,7 @@ export const myFriendRouter = router({
               mutualFriendCount: CountSchema,
             }).parse
           )
-      )
+      })
     }),
 })
 
